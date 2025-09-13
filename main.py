@@ -158,7 +158,7 @@ else:
 
         # --- 2. Performance Trend Analysis ---
         st.header("Performance Trend Analysis")
-        
+
         daily_agg = df_filtered.groupby('date').agg({
             'total_revenue': 'first',
             'spend': 'sum',
@@ -169,20 +169,22 @@ else:
 
         trend_col1, trend_col2 = st.columns(2)
         with trend_col1:
-            fig_rev_spend = make_subplots(specs=[[{"secondary_y": True}]])
-            fig_rev_spend.add_trace(go.Scatter(x=daily_agg['date'], y=daily_agg['total_revenue'], name='Total Revenue', mode='lines', line=dict(color='#1f77b4')), secondary_y=False)
-            fig_rev_spend.add_trace(go.Scatter(x=daily_agg['date'], y=daily_agg['spend'], name='Ad Spend', mode='lines', line=dict(color='#ff7f0e')), secondary_y=True)
-            fig_rev_spend.update_layout(title_text="<b>Daily Revenue vs. Ad Spend</b>", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
-            fig_rev_spend.update_yaxes(title_text="<b>Total Revenue ($)</b>", secondary_y=False)
-            fig_rev_spend.update_yaxes(title_text="<b>Ad Spend ($)</b>", secondary_y=True)
+            fig_rev_spend = go.Figure()
+            fig_rev_spend.add_trace(go.Scatter(x=daily_agg['date'], y=daily_agg['total_revenue'], name='Total Revenue', mode='lines', line=dict(color='#1f77b4')))
+            fig_rev_spend.add_trace(go.Scatter(x=daily_agg['date'], y=daily_agg['spend'], name='Ad Spend', mode='lines', line=dict(color='#ff7f0e')))
+            fig_rev_spend.update_layout(
+            title_text="<b>Daily Revenue vs. Ad Spend</b>",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            yaxis_title="<b>Amount ($)</b>"
+            )
             st.plotly_chart(fig_rev_spend, use_container_width=True)
         
         with trend_col2:
             fig_ctr = px.line(
-                daily_agg,
-                x='date',
-                y='ctr',
-                title='<b>Daily Click-Through Rate (CTR)</b>'
+            daily_agg,
+            x='date',
+            y='ctr',
+            title='<b>Daily Click-Through Rate (CTR)</b>'
             )
             fig_ctr.update_traces(line_color='#2ca02c')
             fig_ctr.update_layout(yaxis_title="<b>CTR (%)</b>")
@@ -190,24 +192,65 @@ else:
 
         # --- 3. Marketing Performance Deep Dive ---
         st.header("Marketing Performance Deep Dive")
+
+        selected_metric = st.radio(
+            "Select Metric for Breakdown Analysis:",
+            options=['ROAS', 'CTR'],
+            horizontal=True,
+        )
         
         col_plat, col_tac = st.columns(2)
 
+        if selected_metric == 'ROAS':
+            y_value = 'roas'
+            y_title = 'Return on Ad Spend (ROAS)'
+            text_format = '.2f'
+        else: # CTR
+            y_value = 'ctr'
+            y_title = 'Click-Through Rate (CTR %)'
+            text_format = '.2f'
+
         with col_plat:
-            platform_agg = df_filtered.groupby('platform').agg(spend=('spend', 'sum'), attributed_revenue=('attributed revenue', 'sum')).reset_index()
-            platform_agg['roas'] = (platform_agg['attributed_revenue'] / platform_agg['spend']).fillna(0)
+            platform_agg = df_filtered.groupby('platform').agg({
+                'spend': 'sum',
+                'attributed revenue': 'sum',
+                'clicks': 'sum',
+                'impression': 'sum'
+            }).reset_index()
+            platform_agg['roas'] = (platform_agg['attributed revenue'] / platform_agg['spend']).fillna(0)
+            platform_agg['ctr'] = (platform_agg['clicks'] / platform_agg['impression'] * 100).fillna(0)
             
-            fig_platform = px.bar(platform_agg.sort_values('roas', ascending=False), x='platform', y='roas', title="<b>ROAS by Platform</b>", labels={'roas': 'ROAS', 'platform': 'Platform'}, color='platform', text_auto='.2f')
+            fig_platform = px.bar(
+                platform_agg.sort_values(y_value, ascending=False), 
+                x='platform', y=y_value,
+                title=f"<b>{selected_metric} by Platform</b>",
+                labels={'platform': 'Platform', y_value: y_title},
+                color='platform',
+                text_auto=text_format
+            )
             st.plotly_chart(fig_platform, use_container_width=True)
 
         with col_tac:
-            tactic_agg = df_filtered.groupby('tactic').agg(spend=('spend', 'sum'), attributed_revenue=('attributed revenue', 'sum')).reset_index()
-            tactic_agg['roas'] = (tactic_agg['attributed_revenue'] / tactic_agg['spend']).fillna(0)
+            tactic_agg = df_filtered.groupby('tactic').agg({
+                'spend': 'sum',
+                'attributed revenue': 'sum',
+                'clicks': 'sum',
+                'impression': 'sum'
+            }).reset_index()
+            tactic_agg['roas'] = (tactic_agg['attributed revenue'] / tactic_agg['spend']).fillna(0)
+            tactic_agg['ctr'] = (tactic_agg['clicks'] / tactic_agg['impression'] * 100).fillna(0)
 
-            fig_tactic = px.bar(tactic_agg.sort_values('roas', ascending=False), x='tactic', y='roas', title="<b>ROAS by Tactic</b>", labels={'roas': 'ROAS', 'tactic': 'Tactic'}, color='tactic', text_auto='.2f')
+            fig_tactic = px.bar(
+                tactic_agg.sort_values(y_value, ascending=False), 
+                x='tactic', y=y_value,
+                title=f"<b>{selected_metric} by Tactic</b>",
+                labels={'tactic': 'Tactic', y_value: y_title},
+                color='tactic',
+                text_auto=text_format
+            )
             st.plotly_chart(fig_tactic, use_container_width=True)
         
-        st.markdown("<br>", unsafe_allow_html=True) # Adding a little space before the next chart
+        st.markdown("<br>", unsafe_allow_html=True)
         
         groupbystate = st.radio("Group Campaign Scatter by:", options=['Platform', 'State'], horizontal=True)
         
@@ -219,16 +262,19 @@ else:
         }).reset_index()
         campaign_agg['roas'] = (campaign_agg['attributed revenue'] / campaign_agg['spend']).fillna(0)
         
+        # Exaggerate the size for better visual distinction. A power of 1.5 provides good emphasis.
+        campaign_agg['size_exaggerated'] = campaign_agg['attributed revenue'] ** 1.5
+        
         fig_campaign_scatter = px.scatter(
             campaign_agg,
             x='spend',
             y='roas',
-            size='attributed revenue',
+            size='size_exaggerated', # Use the new exaggerated size column
             color=criteria,
             hover_name='campaign',
             title='<b>Campaign Efficiency (Spend vs. ROAS)</b>',
             labels={'spend': 'Total Spend ($)', 'roas': 'ROAS', 'attributed revenue': 'Attributed Revenue'},
-            size_max=60,
+            size_max=60, # Keep max size reasonable
             log_x=True
         )
         st.plotly_chart(fig_campaign_scatter, use_container_width=True)
