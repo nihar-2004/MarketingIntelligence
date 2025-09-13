@@ -53,7 +53,7 @@ else:
     st.title("📊 Marketing Intelligence Dashboard")
     st.markdown("Analyze marketing spend and its connection to business outcomes.")
 
-
+    c = st.columns(4)
     # Date Range Filter
     min_date = df['date'].min().date()
     max_date = df['date'].max().date()
@@ -62,21 +62,22 @@ else:
     default_start_date = max_date - timedelta(days=30)
     if default_start_date < min_date:
         default_start_date = min_date
-
-    start_date, end_date = st.slider(
-        "Select Date Range",
-        min_value=min_date,
-        max_value=max_date,
-        value=(default_start_date, max_date),
-        format="YYYY-MM-DD"
-    )
+    with c[0].expander('Date Range', True):
+        start_date, end_date = st.slider(
+            "Select Date Range",
+            min_value=min_date,
+            max_value=max_date,
+            value=(default_start_date, max_date),
+            format="YYYY-MM-DD"
+        )
+        
 
     # Convert slider dates to datetime for filtering
     start_date = pd.to_datetime(start_date)
     end_date = pd.to_datetime(end_date)
 
-    c=st.columns(3)
-    with c[0].expander('Platform(s)', True):
+
+    with c[1].expander('Platform(s)', True):
         selected_platforms = sac.checkbox(
             items=df['platform'].unique().tolist(),
             label='Select Platform(s)', index=[0, 1, 2], align='center', check_all='Select all',
@@ -87,12 +88,12 @@ else:
     #     options=df['platform'].unique(),
     #     default=df['platform'].unique()
     # )
-    with c[1].expander('Tactic(s)', True):
+    with c[2].expander('Tactic(s)', True):
         selected_tactics = sac.checkbox(
             items=df['tactic'].unique().tolist(),
             label="Select Tactic(s)", index=[0, 1, 2, 3, 4, 5], align='center', check_all='Select all'
         )
-    with c[2].expander('State(s)', True):
+    with c[3].expander('State(s)', True):
         selected_states = sac.checkbox(
             items=df['state'].unique().tolist(),
             label="Select State(s)", index=[0, 1], align='center', check_all='Select all'
