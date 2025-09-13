@@ -70,7 +70,7 @@ else:
             value=(default_start_date, max_date),
             format="YYYY-MM-DD"
         )
-        
+
 
     # Convert slider dates to datetime for filtering
     start_date = pd.to_datetime(start_date)
@@ -82,12 +82,7 @@ else:
             items=df['platform'].unique().tolist(),
             label='Select Platform(s)', index=[0, 1, 2], align='center', check_all='Select all',
         )
-    # Other Multiselect Filters
-    # selected_platforms = st.sidebar.multiselect(
-    #     "Select Platform(s)",
-    #     options=df['platform'].unique(),
-    #     default=df['platform'].unique()
-    # )
+
     with c[2].expander('Tactic(s)', True):
         selected_tactics = sac.checkbox(
             items=df['tactic'].unique().tolist(),
@@ -98,7 +93,7 @@ else:
             items=df['state'].unique().tolist(),
             label="Select State(s)", index=[0, 1], align='center', check_all='Select all'
         )
-
+    st.divider()
     # --- Filter DataFrame based on selections ---
     mask = (
         (df['date'] >= start_date) & (df['date'] <= end_date) &
@@ -202,18 +197,37 @@ else:
             'attributed revenue': 'sum'
         }).reset_index()
         campaign_agg['roas'] = (campaign_agg['attributed revenue'] / campaign_agg['spend']).fillna(0)
-        
+        campaign_agg['area'] = campaign_agg['attributed revenue']**1.6
         fig_campaign_scatter = px.scatter(
             campaign_agg,
             x='spend',
             y='roas',
-            size='attributed revenue',
+            size='area',
             color='platform',
             hover_name='campaign',
             title='<b>Campaign Efficiency (Spend vs. ROAS)</b>',
-            labels={'spend': 'Total Spend ($)', 'roas': 'ROAS', 'attributed revenue': 'Attributed Revenue','platform': 'Platform'},
-            size_max=30,
+            labels={
+            'spend': 'Total Spend ($)',
+            'roas': 'ROAS',
+            'attributed revenue': 'Attributed Revenue',
+            'platform': 'Platform'
+            # 'area' is intentionally omitted so it won't show in the legend or tooltips
+            },
+            size_max=40,
             log_x=True
+        )
+        # Remove 'area' from hover data
+        fig_campaign_scatter.update_traces(hovertemplate=None, hoverinfo='skip')
+        # Or, more precisely, set custom hover data excluding 'area'
+        fig_campaign_scatter.for_each_trace(
+            lambda t: t.update(
+            hovertemplate='<br>'.join([
+                'Campaign=%{hovertext}',
+                'Spend=%{x}',
+                'ROAS=%{y}'
+
+            ])
+            )
         )
         st.plotly_chart(fig_campaign_scatter, use_container_width=True)
         
