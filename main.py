@@ -42,6 +42,21 @@ def load_data():
 
 df = load_data()
 
+def calculate_kpis(data):
+    """Calculates key metrics from a given dataframe."""
+    if data.empty:
+        return {'revenue': 0, 'spend': 0, 'new_customers': 0, 'roas': 0, 'cac': 0}
+    
+    revenue = data.groupby('date')['total_revenue'].first().sum()
+    spend = data['spend'].sum()
+    new_customers = data.groupby('date')['new_customers'].first().sum()
+    
+    roas = (data['attributed revenue'].sum() / spend) if spend > 0 else 0
+    cac = (spend / new_customers) if new_customers > 0 else 0
+    
+    return {'revenue': revenue, 'spend': spend, 'new_customers': new_customers, 'roas': roas, 'cac': cac}
+
+
 # --- Main App ---
 if df is None:
     st.error("Data could not be loaded. Please check the CSV file paths and content.")
@@ -75,7 +90,7 @@ else:
     # Convert slider dates to datetime for filtering
     start_date = pd.to_datetime(start_date)
     end_date = pd.to_datetime(end_date)
-
+    
 
     with c[1].expander('Platform(s)', True):
         selected_platforms = sac.checkbox(
@@ -102,29 +117,54 @@ else:
         (df['state'].isin(selected_states))
     )
     df_filtered = df[mask]
+    mask_current = (
+        (df['date'] >= start_date) & (df['date'] <= end_date) &
+        (df['platform'].isin(selected_platforms)) &
+        (df['tactic'].isin(selected_tactics)) &
+        (df['state'].isin(selected_states))
+    )
+    df_filtered = df[mask_current]
 
+    # Previous Period Calculation
+    period_duration = (end_date - start_date).days
+    prev_start_date = start_date - timedelta(days=period_duration + 1)
+    prev_end_date = start_date - timedelta(days=1)
+
+    mask_previous = (
+        (df['date'] >= prev_start_date) & (df['date'] <= prev_end_date) &
+        (df['platform'].isin(selected_platforms)) &
+        (df['tactic'].isin(selected_tactics)) &
+        (df['state'].isin(selected_states))
+    )
+    df_previous = df[mask_previous]
     if df_filtered.empty:
         st.warning("No data available for the selected filters. Please adjust your selections.")
     else:
         # --- 1. Executive Summary (KPIs) ---
         st.header("Executive Summary")
+        st.markdown(f"Comparing **{start_date.strftime('%d %b, %Y')} - {end_date.strftime('%d %b, %Y')}** with preceding period.")
 
-        # Calculate KPIs from the filtered dataframe
-        total_revenue = df_filtered.groupby('date')['total_revenue'].first().sum()
-        total_spend = df_filtered['spend'].sum()
-        total_new_customers = df_filtered.groupby('date')['new_customers'].first().sum()
-        
-        # Calculate overall ROAS and CAC safely
-        overall_roas = (df_filtered['attributed revenue'].sum() / total_spend) if total_spend > 0 else 0
-        overall_cac = (total_spend / total_new_customers) if total_new_customers > 0 else 0
+        # Calculate KPIs for both periods
+        kpis_current = calculate_kpis(df_filtered)
+        kpis_previous = calculate_kpis(df_previous)
 
-        # Display KPIs in columns
+        # Calculate deltas safely
+        def get_delta(current, previous):
+            if previous == 0: return None # Avoid division by zero
+            return ((current - previous) / previous) * 100
+
+        delta_revenue = get_delta(kpis_current['revenue'], kpis_previous['revenue'])
+        delta_spend = get_delta(kpis_current['spend'], kpis_previous['spend'])
+        delta_roas = get_delta(kpis_current['roas'], kpis_previous['roas'])
+        delta_new_customers = get_delta(kpis_current['new_customers'], kpis_previous['new_customers'])
+        delta_cac = get_delta(kpis_current['cac'], kpis_previous['cac'])
+
         col1, col2, col3, col4, col5 = st.columns(5)
-        col1.metric("Total Revenue", f"${total_revenue:,.2f}")
-        col2.metric("Total Ad Spend", f"${total_spend:,.2f}")
-        col3.metric("Overall ROAS", f"{overall_roas:.2f}x")
-        col4.metric("Total New Customers", f"{int(total_new_customers):,}")
-        col5.metric("Average CAC", f"${overall_cac:,.2f}")
+        col1.metric("Total Revenue", f"${kpis_current['revenue']:,.2f}", f"{delta_revenue:.2f}%" if delta_revenue is not None else "N/A")
+        col2.metric("Total Ad Spend", f"${kpis_current['spend']:,.2f}", f"{delta_spend:.2f}%" if delta_spend is not None else "N/A", delta_color="inverse")
+        col3.metric("Overall ROAS", f"{kpis_current['roas']:.2f}x", f"{delta_roas:.2f}%" if delta_roas is not None else "N/A")
+        col4.metric("New Customers", f"{int(kpis_current['new_customers']):,}", f"{delta_new_customers:.2f}%" if delta_new_customers is not None else "N/A")
+        col5.metric("Average CAC", f"${kpis_current['cac']:,.2f}", f"{delta_cac:.2f}%" if delta_cac is not None else "N/A", delta_color="inverse")
 
         st.markdown("---")
 
@@ -192,7 +232,13 @@ else:
             st.plotly_chart(fig_tactic, use_container_width=True)
 
         # Chart 5: Spend vs. ROAS by Campaign (Scatter Plot)
-        campaign_agg = df_filtered.groupby(['campaign', 'platform']).agg({
+        groupbystate = st.pills("Group by",options=['State','Platform'],default='State',selection_mode='single')
+        
+        if groupbystate=='State':
+            criteria = 'state'
+        else:
+            criteria = 'platform'
+        campaign_agg = df_filtered.groupby(['campaign', criteria]).agg({
             'spend': 'sum',
             'attributed revenue': 'sum'
         }).reset_index()
@@ -203,7 +249,7 @@ else:
             x='spend',
             y='roas',
             size='area',
-            color='platform',
+            color=criteria,
             hover_name='campaign',
             title='<b>Campaign Efficiency (Spend vs. ROAS)</b>',
             labels={
