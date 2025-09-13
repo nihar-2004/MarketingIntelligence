@@ -3,7 +3,8 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-
+from datetime import timedelta
+import streamlit_antd_components as sac
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -12,8 +13,23 @@ st.set_page_config(
     layout="wide"
 )
 
+st.markdown(f'''
+    <style>
+    .stApp .main .block-container{{
+        padding:30px 50px
+    }}
+    .stApp [data-testid='stSidebar']>div:nth-child(1)>div:nth-child(2){{
+        padding-top:50px
+    }}
+    iframe{{
+        display:block;
+    }}
+    .stRadio div[role='radiogroup']>label{{
+        margin-right:5px
+    }}
+    </style>
+    ''', unsafe_allow_html=True)
 # --- Data Loading ---
-# Use st.cache_data to prevent reloading data on every interaction
 @st.cache_data
 def load_data():
     """Loads and prepares the data using the imported function."""
@@ -30,20 +46,28 @@ df = load_data()
 if df is None:
     st.error("Data could not be loaded. Please check the CSV file paths and content.")
 else:
+    # --- FIX: Explicitly convert 'date' column to datetime objects ---
+    # This ensures all subsequent date operations will work correctly.
+    df['date'] = pd.to_datetime(df['date'])
+
     st.title("📊 Marketing Intelligence Dashboard")
     st.markdown("Analyze marketing spend and its connection to business outcomes.")
 
-    # --- Sidebar Filters ---
-    st.sidebar.header("Dashboard Filters")
 
     # Date Range Filter
     min_date = df['date'].min().date()
     max_date = df['date'].max().date()
-    start_date, end_date = st.sidebar.slider(
+
+    # Set default start date to be 30 days before the max_date
+    default_start_date = max_date - timedelta(days=30)
+    if default_start_date < min_date:
+        default_start_date = min_date
+
+    start_date, end_date = st.slider(
         "Select Date Range",
         min_value=min_date,
         max_value=max_date,
-        value=(min_date, max_date),
+        value=(default_start_date, max_date),
         format="YYYY-MM-DD"
     )
 
@@ -51,24 +75,28 @@ else:
     start_date = pd.to_datetime(start_date)
     end_date = pd.to_datetime(end_date)
 
+    c=st.columns(3)
+    with c[0].expander('Platform(s)', True):
+        selected_platforms = sac.checkbox(
+            items=df['platform'].unique().tolist(),
+            label='Select Platform(s)', index=[0, 1, 2], align='center', check_all='Select all',
+        )
     # Other Multiselect Filters
-    selected_platforms = st.sidebar.multiselect(
-        "Select Platform(s)",
-        options=df['platform'].unique(),
-        default=df['platform'].unique()
-    )
-
-    selected_tactics = st.sidebar.multiselect(
-        "Select Tactic(s)",
-        options=df['tactic'].unique(),
-        default=df['tactic'].unique()
-    )
-
-    selected_states = st.sidebar.multiselect(
-        "Select State(s)",
-        options=df['state'].unique(),
-        default=df['state'].unique()
-    )
+    # selected_platforms = st.sidebar.multiselect(
+    #     "Select Platform(s)",
+    #     options=df['platform'].unique(),
+    #     default=df['platform'].unique()
+    # )
+    with c[1].expander('Tactic(s)', True):
+        selected_tactics = sac.checkbox(
+            items=df['tactic'].unique().tolist(),
+            label="Select Tactic(s)", index=[0, 1, 2, 3, 4, 5], align='center', check_all='Select all'
+        )
+    with c[2].expander('State(s)', True):
+        selected_states = sac.checkbox(
+            items=df['state'].unique().tolist(),
+            label="Select State(s)", index=[0, 1], align='center', check_all='Select all'
+        )
 
     # --- Filter DataFrame based on selections ---
     mask = (
@@ -86,9 +114,9 @@ else:
         st.header("Executive Summary")
 
         # Calculate KPIs from the filtered dataframe
-        total_revenue = df_filtered['total_revenue'].unique().sum()
+        total_revenue = df_filtered.groupby('date')['total_revenue'].first().sum()
         total_spend = df_filtered['spend'].sum()
-        total_new_customers = df_filtered['new_customers'].unique().sum()
+        total_new_customers = df_filtered.groupby('date')['new_customers'].first().sum()
         
         # Calculate overall ROAS and CAC safely
         overall_roas = (df_filtered['attributed revenue'].sum() / total_spend) if total_spend > 0 else 0
@@ -99,7 +127,7 @@ else:
         col1.metric("Total Revenue", f"${total_revenue:,.2f}")
         col2.metric("Total Ad Spend", f"${total_spend:,.2f}")
         col3.metric("Overall ROAS", f"{overall_roas:.2f}x")
-        col4.metric("Total New Customers", f"{total_new_customers:,}")
+        col4.metric("Total New Customers", f"{int(total_new_customers):,}")
         col5.metric("Average CAC", f"${overall_cac:,.2f}")
 
         st.markdown("---")
@@ -110,10 +138,10 @@ else:
 
         # Aggregate data daily for trend charts
         daily_agg = df_filtered.groupby('date').agg({
-            'total_revenue': 'first', # Since it's daily business data
+            'total_revenue': 'first',
             'spend': 'sum',
             'roas': 'mean',
-            'cac': 'first' # Since CAC is calculated daily
+            'cac': 'first'
         }).reset_index()
 
         # Chart 1: Revenue vs. Spend (Dual-Axis)
@@ -140,7 +168,8 @@ else:
             platform_agg['roas'] = (platform_agg['attributed revenue'] / platform_agg['spend']).fillna(0)
             
             fig_platform = px.bar(
-                platform_agg, x='platform', y='roas',
+                platform_agg.sort_values('roas', ascending=False), 
+                x='platform', y='roas',
                 title="<b>ROAS by Platform</b>",
                 labels={'roas': 'Return on Ad Spend (ROAS)', 'platform': 'Platform'},
                 color='platform',
@@ -157,7 +186,8 @@ else:
             tactic_agg['roas'] = (tactic_agg['attributed revenue'] / tactic_agg['spend']).fillna(0)
 
             fig_tactic = px.bar(
-                tactic_agg, x='tactic', y='roas',
+                tactic_agg.sort_values('roas', ascending=False), 
+                x='tactic', y='roas',
                 title="<b>ROAS by Tactic</b>",
                 labels={'roas': 'Return on Ad Spend (ROAS)', 'tactic': 'Tactic'},
                 color='tactic',
@@ -180,9 +210,9 @@ else:
             color='platform',
             hover_name='campaign',
             title='<b>Campaign Efficiency (Spend vs. ROAS)</b>',
-            labels={'spend': 'Total Spend ($)', 'roas': 'ROAS', 'attributed revenue': 'Attributed Revenue'},
-            size_max=60,
-            log_x=True # Use log scale for spend if values vary widely
+            labels={'spend': 'Total Spend ($)', 'roas': 'ROAS', 'attributed revenue': 'Attributed Revenue','platform': 'Platform'},
+            size_max=30,
+            log_x=True
         )
         st.plotly_chart(fig_campaign_scatter, use_container_width=True)
         
@@ -192,3 +222,4 @@ else:
         st.header("Explore Raw Data")
         if st.checkbox("Show Filtered Raw Data"):
             st.dataframe(df_filtered)
+
