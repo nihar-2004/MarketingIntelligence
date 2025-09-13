@@ -133,7 +133,6 @@ else:
             sac.TabsItem(label='Overview', ),
             sac.TabsItem(label='Platforms'),
             sac.TabsItem(label='Tactics'),
-            sac.TabsItem(label='Performance'),
         ], align='center')
         
         
@@ -217,6 +216,13 @@ else:
                 st.metric("Total Clicks", f"{daily_agg['clicks'].sum():,}")
                 st.metric("Conversion Rate (CTR)", f"{daily_agg['ctr'].mean():.2f}%")
                 st.metric("Attributed Revenue", f"${df_filtered['attributed revenue'].sum():,.2f}")
+            
+            st.markdown("---")
+
+            # --- 4. Raw Data View ---
+            st.header("Explore Raw Data")
+            if st.checkbox("Show Filtered Raw Data"):
+                st.dataframe(df_filtered)
 
         elif selected_stats == 'Platforms':
             platcol1, platcol2 = st.columns(2)
@@ -286,6 +292,32 @@ else:
                     labels={'platform': 'Platform', 'ctr': 'Click-Through Rate (CTR %)'}, color='platform', text_auto='.2f'
                 )
                 st.plotly_chart(fig_platform, use_container_width=True)
+            st.markdown("---")
+            st.header("Campaign Level Analysis")
+            groupbystate = st.radio("Group Campaign Scatter by:", options=['Platform', 'State'], horizontal=True)
+            
+            criteria = 'platform' if groupbystate == 'Platform' else 'state'
+            campaign_agg = df_filtered.groupby(['campaign', criteria]).agg(
+                spend=('spend', 'sum'),
+                attributed_revenue=('attributed revenue', 'sum')
+            ).reset_index()
+            campaign_agg['roas'] = (campaign_agg['attributed_revenue'] / campaign_agg['spend']).fillna(0)
+            campaign_agg['size_exaggerated'] = campaign_agg['attributed_revenue'] ** 1.5
+            
+            fig_campaign_scatter = px.scatter(
+                campaign_agg, 
+                x='spend', 
+                y='roas',
+                size='size_exaggerated', 
+                color=criteria, 
+                hover_name='campaign',
+                hover_data={'size_exaggerated': False, 'attributed_revenue': True},
+                title='<b>Campaign Efficiency (Spend vs. ROAS)</b>',
+                labels={'platform': 'Platform', 'spend': 'Total Spend ($)', 'roas': 'ROAS', 'attributed_revenue': 'Attributed Revenue'},
+                size_max=60, 
+                log_x=True
+            )
+            st.plotly_chart(fig_campaign_scatter, use_container_width=True)
         elif selected_stats == 'Tactics':
             taccol1, taccol2 = st.columns(2)
             with taccol1:
@@ -358,6 +390,81 @@ else:
                     labels={'tactic': 'Tactic', 'ctr': 'Click-Through Rate (CTR %)'}, color='tactic', text_auto='.2f'
                 )
                 st.plotly_chart(fig_tactic, use_container_width=True)
+        # elif selected_stats == 'Geography':
+        #     geo_col1, geo_col2 = st.columns(2)
+        #     with geo_col1:
+        #         state_agg = df_filtered.groupby('state')['impression'].sum().reset_index()
+        #         fig_map = px.choropleth(
+        #             state_agg,
+        #             locations='state',
+        #             locationmode='USA-states',
+        #             color='impression',
+        #             color_continuous_scale='Blues',
+        #             scope='usa',
+        #             title='<b>Impressions by State</b>',
+        #             labels={'impression': 'Total Impressions', 'state': 'State'}
+        #         )
+        #         fig_map.update_layout(margin={"r":0,"t":50,"l":0,"b":0})
+        #         st.plotly_chart(fig_map, use_container_width=True)
+        #     with geo_col2:
+        #         state_agg_spend_rev = df_filtered.groupby('state').agg({
+        #             'spend': 'sum',
+        #             'attributed revenue': 'sum'
+        #         }).reset_index()
+                
+        #         state_agg_melted = state_agg_spend_rev.melt(
+        #             id_vars='state', 
+        #             value_vars=['spend', 'attributed revenue'],
+        #             var_name='Metric', 
+        #             value_name='Amount'
+        #         )
+                
+        #         fig_spend_rev = px.bar(
+        #             state_agg_melted,
+        #             x='state',
+        #             y='Amount',
+        #             color='Metric',
+        #             barmode='group',
+        #             title='<b>Spend vs. Attributed Revenue by State</b>',
+        #             labels={'Amount': 'Amount ($)', 'state': 'State'},
+        #             text_auto=True
+        #         )
+        #         fig_spend_rev.update_traces(texttemplate='%{y:,.0f}', textposition='outside')
+        #         st.plotly_chart(fig_spend_rev, use_container_width=True)
+            
+        #     geo_col3, geo_col4 = st.columns(2)
+        #     with geo_col3:
+        #         state_agg = df_filtered.groupby('state').agg(
+        #             spend=('spend', 'sum'),
+        #             attributed_revenue=('attributed revenue', 'sum'),
+        #             clicks=('clicks', 'sum'),
+        #             impression=('impression', 'sum')
+        #         ).reset_index()
+        #         state_agg['roas'] = (state_agg['attributed_revenue'] / state_agg['spend']).fillna(0)
+                
+        #         fig_state = px.bar(
+        #             state_agg.sort_values('roas', ascending=False),
+        #             x='state', y='roas',
+        #             title=f"<b>ROAS by State</b>",
+        #             labels={'state': 'State', 'roas': 'Return On Ad Spend (ROAS)'}, color='state', text_auto='.2f'
+        #         )
+        #         st.plotly_chart(fig_state, use_container_width=True)
+        #     with geo_col4:
+        #         state_agg = df_filtered.groupby('state').agg(
+        #             spend=('spend', 'sum'),
+        #             attributed_revenue=('attributed revenue', 'sum'),
+        #             clicks=('clicks', 'sum'),
+        #             impression=('impression', 'sum')
+        #         ).reset_index()
+        #         state_agg['ctr'] = (state_agg['clicks'] / state_agg['impression'] * 100).fillna(0)
+                
+        #         fig_state = px.bar(
+        #             state_agg.sort_values('ctr', ascending=False),
+        #             x='state', y='ctr',
+        #             title=f"<b>CTR by State</b>",
+        #             labels={'state': 'State', 'ctr': 'Click-Through Rate (CTR %)'}, color='state', text_auto='.2f'
+        #         )
+        #         st.plotly_chart(fig_state, use_container_width=True)
         
         
         
@@ -369,36 +476,6 @@ else:
         
 
 
-        st.markdown("---")
-        st.header("Campaign Level Analysis")
-        groupbystate = st.radio("Group Campaign Scatter by:", options=['Platform', 'State'], horizontal=True)
+       
         
-        criteria = 'platform' if groupbystate == 'Platform' else 'state'
-        campaign_agg = df_filtered.groupby(['campaign', criteria]).agg(
-            spend=('spend', 'sum'),
-            attributed_revenue=('attributed revenue', 'sum')
-        ).reset_index()
-        campaign_agg['roas'] = (campaign_agg['attributed_revenue'] / campaign_agg['spend']).fillna(0)
-        campaign_agg['size_exaggerated'] = campaign_agg['attributed_revenue'] ** 1.5
-        
-        fig_campaign_scatter = px.scatter(
-            campaign_agg, 
-            x='spend', 
-            y='roas',
-            size='size_exaggerated', 
-            color=criteria, 
-            hover_name='campaign',
-            hover_data={'size_exaggerated': False, 'attributed_revenue': True},
-            title='<b>Campaign Efficiency (Spend vs. ROAS)</b>',
-            labels={'platform': 'Platform', 'spend': 'Total Spend ($)', 'roas': 'ROAS', 'attributed_revenue': 'Attributed Revenue'},
-            size_max=60, 
-            log_x=True
-        )
-        st.plotly_chart(fig_campaign_scatter, use_container_width=True)
-        st.markdown("---")
-
-        # --- 4. Raw Data View ---
-        st.header("Explore Raw Data")
-        if st.checkbox("Show Filtered Raw Data"):
-            st.dataframe(df_filtered)
 
