@@ -5,6 +5,29 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from datetime import timedelta
 import streamlit_antd_components as sac
+import google.generativeai as genai
+import os
+import json
+from dotenv import load_dotenv
+load_dotenv()
+
+# --- Google Gemini API Setup ---
+genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+model = genai.GenerativeModel("gemini-1.5-flash")
+insights = None
+def get_gemini_insights(data_summary):
+    """Fetches insights from Google Gemini API based on the provided prompt."""
+    prompt = f"""You are a marketing analyst. Based on the following data summary, provide 3 key insights and
+    2 actionable recommendations for improving marketing performance in markdown format. Be concise and specific. Use backslash before dollar signs. Use only subheadings and bullet points.
+    Data Summary: {data_summary}"""
+    try:
+        response = model.generate_content(prompt)
+        print(response)
+        return response.text.strip()
+    except Exception as e:
+        print(e)
+        st.error(f"Error fetching insights from Gemini API: {e}")
+        return "No insights available."
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -133,6 +156,8 @@ else:
             sac.TabsItem(label='Overview', ),
             sac.TabsItem(label='Platforms'),
             sac.TabsItem(label='Tactics'),
+            sac.TabsItem(label='Geography'),
+            sac.TabsItem(label='Raw Data'),
         ], align='center')
         
         
@@ -218,11 +243,24 @@ else:
                 st.metric("Attributed Revenue", f"${df_filtered['attributed revenue'].sum():,.2f}")
             
             st.markdown("---")
-
-            # --- 4. Raw Data View ---
-            st.header("Explore Raw Data")
-            if st.checkbox("Show Filtered Raw Data"):
-                st.dataframe(df_filtered)
+            st.header("AI-Generated Insights & Recommendations")
+            data_summary = (
+                f"Total Revenue: ${kpis_current['revenue']:,.2f}, "
+                f"Total Ad Spend: ${kpis_current['spend']:,.2f}, "
+                f"Overall ROAS: {kpis_current['roas']:.2f}x, "
+                f"New Customers: {int(kpis_current['new_customers']):,}, "
+                f"Average CAC: ${kpis_current['cac']:,.2f}, "
+                f"Average CTR: {kpis_current['ctr']:.2f}%, "
+                f"Average AOV: ${kpis_current['aov']:,.2f}, "
+                f"Average CPC: ${kpis_current['cpc']:,.2f}. "
+                f"Best Platform: {best_platform['platform']} (ROAS: {best_platform['roas']:.2f}x). "
+                f"Most Efficient Tactic: {best_tactic['tactic']} (ROAS: {best_tactic['roas']:.2f}x). "
+                f"Top Revenue Campaign: {top_campaign['campaign']} (${top_campaign['attributed_revenue']:,.0f})."
+            )
+            if not insights:
+                insights = get_gemini_insights(data_summary)
+            st.markdown(insights)
+            
 
         elif selected_stats == 'Platforms':
             platcol1, platcol2 = st.columns(2)
@@ -390,81 +428,84 @@ else:
                     labels={'tactic': 'Tactic', 'ctr': 'Click-Through Rate (CTR %)'}, color='tactic', text_auto='.2f'
                 )
                 st.plotly_chart(fig_tactic, use_container_width=True)
-        # elif selected_stats == 'Geography':
-        #     geo_col1, geo_col2 = st.columns(2)
-        #     with geo_col1:
-        #         state_agg = df_filtered.groupby('state')['impression'].sum().reset_index()
-        #         fig_map = px.choropleth(
-        #             state_agg,
-        #             locations='state',
-        #             locationmode='USA-states',
-        #             color='impression',
-        #             color_continuous_scale='Blues',
-        #             scope='usa',
-        #             title='<b>Impressions by State</b>',
-        #             labels={'impression': 'Total Impressions', 'state': 'State'}
-        #         )
-        #         fig_map.update_layout(margin={"r":0,"t":50,"l":0,"b":0})
-        #         st.plotly_chart(fig_map, use_container_width=True)
-        #     with geo_col2:
-        #         state_agg_spend_rev = df_filtered.groupby('state').agg({
-        #             'spend': 'sum',
-        #             'attributed revenue': 'sum'
-        #         }).reset_index()
+        elif selected_stats == 'Geography':
+            geo_col1, geo_col2 = st.columns(2)
+            with geo_col1:
+                state_agg = df_filtered.groupby('state')['impression'].sum().reset_index()
+                fig_map = px.choropleth(
+                    state_agg,
+                    locations='state',
+                    locationmode='USA-states',
+                    color='impression',
+                    color_continuous_scale='Blues',
+                    scope='usa',
+                    title='<b>Impressions by State</b>',
+                    labels={'impression': 'Total Impressions', 'state': 'State'}
+                )
+                fig_map.update_layout(margin={"r":0,"t":50,"l":0,"b":0})
+                st.plotly_chart(fig_map, use_container_width=True)
+            with geo_col2:
+                state_agg_spend_rev = df_filtered.groupby('state').agg({
+                    'spend': 'sum',
+                    'attributed revenue': 'sum'
+                }).reset_index()
                 
-        #         state_agg_melted = state_agg_spend_rev.melt(
-        #             id_vars='state', 
-        #             value_vars=['spend', 'attributed revenue'],
-        #             var_name='Metric', 
-        #             value_name='Amount'
-        #         )
+                state_agg_melted = state_agg_spend_rev.melt(
+                    id_vars='state', 
+                    value_vars=['spend', 'attributed revenue'],
+                    var_name='Metric', 
+                    value_name='Amount'
+                )
                 
-        #         fig_spend_rev = px.bar(
-        #             state_agg_melted,
-        #             x='state',
-        #             y='Amount',
-        #             color='Metric',
-        #             barmode='group',
-        #             title='<b>Spend vs. Attributed Revenue by State</b>',
-        #             labels={'Amount': 'Amount ($)', 'state': 'State'},
-        #             text_auto=True
-        #         )
-        #         fig_spend_rev.update_traces(texttemplate='%{y:,.0f}', textposition='outside')
-        #         st.plotly_chart(fig_spend_rev, use_container_width=True)
+                fig_spend_rev = px.bar(
+                    state_agg_melted,
+                    x='state',
+                    y='Amount',
+                    color='Metric',
+                    barmode='group',
+                    title='<b>Spend vs. Attributed Revenue by State</b>',
+                    labels={'Amount': 'Amount ($)', 'state': 'State'},
+                    text_auto=True
+                )
+                fig_spend_rev.update_traces(texttemplate='%{y:,.0f}', textposition='outside')
+                st.plotly_chart(fig_spend_rev, use_container_width=True)
             
-        #     geo_col3, geo_col4 = st.columns(2)
-        #     with geo_col3:
-        #         state_agg = df_filtered.groupby('state').agg(
-        #             spend=('spend', 'sum'),
-        #             attributed_revenue=('attributed revenue', 'sum'),
-        #             clicks=('clicks', 'sum'),
-        #             impression=('impression', 'sum')
-        #         ).reset_index()
-        #         state_agg['roas'] = (state_agg['attributed_revenue'] / state_agg['spend']).fillna(0)
+            geo_col3, geo_col4 = st.columns(2)
+            with geo_col3:
+                state_agg = df_filtered.groupby('state').agg(
+                    spend=('spend', 'sum'),
+                    attributed_revenue=('attributed revenue', 'sum'),
+                    clicks=('clicks', 'sum'),
+                    impression=('impression', 'sum')
+                ).reset_index()
+                state_agg['roas'] = (state_agg['attributed_revenue'] / state_agg['spend']).fillna(0)
                 
-        #         fig_state = px.bar(
-        #             state_agg.sort_values('roas', ascending=False),
-        #             x='state', y='roas',
-        #             title=f"<b>ROAS by State</b>",
-        #             labels={'state': 'State', 'roas': 'Return On Ad Spend (ROAS)'}, color='state', text_auto='.2f'
-        #         )
-        #         st.plotly_chart(fig_state, use_container_width=True)
-        #     with geo_col4:
-        #         state_agg = df_filtered.groupby('state').agg(
-        #             spend=('spend', 'sum'),
-        #             attributed_revenue=('attributed revenue', 'sum'),
-        #             clicks=('clicks', 'sum'),
-        #             impression=('impression', 'sum')
-        #         ).reset_index()
-        #         state_agg['ctr'] = (state_agg['clicks'] / state_agg['impression'] * 100).fillna(0)
+                fig_state = px.bar(
+                    state_agg.sort_values('roas', ascending=False),
+                    x='state', y='roas',
+                    title=f"<b>ROAS by State</b>",
+                    labels={'state': 'State', 'roas': 'Return On Ad Spend (ROAS)'}, color='state', text_auto='.2f'
+                )
+                st.plotly_chart(fig_state, use_container_width=True)
+            with geo_col4:
+                state_agg = df_filtered.groupby('state').agg(
+                    spend=('spend', 'sum'),
+                    attributed_revenue=('attributed revenue', 'sum'),
+                    clicks=('clicks', 'sum'),
+                    impression=('impression', 'sum')
+                ).reset_index()
+                state_agg['ctr'] = (state_agg['clicks'] / state_agg['impression'] * 100).fillna(0)
                 
-        #         fig_state = px.bar(
-        #             state_agg.sort_values('ctr', ascending=False),
-        #             x='state', y='ctr',
-        #             title=f"<b>CTR by State</b>",
-        #             labels={'state': 'State', 'ctr': 'Click-Through Rate (CTR %)'}, color='state', text_auto='.2f'
-        #         )
-        #         st.plotly_chart(fig_state, use_container_width=True)
+                fig_state = px.bar(
+                    state_agg.sort_values('ctr', ascending=False),
+                    x='state', y='ctr',
+                    title=f"<b>CTR by State</b>",
+                    labels={'state': 'State', 'ctr': 'Click-Through Rate (CTR %)'}, color='state', text_auto='.2f'
+                )
+                st.plotly_chart(fig_state, use_container_width=True)
+        elif selected_stats == 'Raw Data':
+            st.header("Explore Raw Data")
+            st.dataframe(df_filtered)
         
         
         
